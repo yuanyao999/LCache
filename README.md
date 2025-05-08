@@ -1,85 +1,92 @@
-# LCache：LRU 缓存模块
 
-这是一个使用 Go 实现的轻量级 LRU（Least Recently Used，最近最少使用）内存缓存模块。支持线程安全、TTL（过期时间）、内存限制与自动清理机制，适合作为分布式缓存系统的底层存储模块。
+# LCache
 
----
+`LCache` 是一个高性能的本地缓存库，支持两种缓存策略：
 
-## ✅ 功能特性
+- `LRU`（最近最少使用）
+- `LRU-2`（两级缓存：频率 + 时间综合优化）
 
-- 基于 `sync.RWMutex` 实现的并发读写安全
-- 使用 `container/list` 实现 LRU 淘汰机制
-- 支持为每个键设置过期时间（TTL）
-- 支持按最大内存字节数自动淘汰缓存项
-- 后台协程定时清理过期数据
-- 可选淘汰回调函数 `OnEvicted`
-- 简洁清晰的 API 设计
+该项目用 Go 语言实现，支持缓存淘汰、过期控制、分桶并发、内存限制与回调等高级功能，适合作为分布式缓存组件、API 本地缓存等应用场景。
 
 ---
 
-## 📦 基本使用
+## 📦 功能特性
 
-### 自定义 Value 类型（需实现 Len() 方法）：
-
-```go
-type String string
-
-func (s String) Len() int {
-    return len(s)
-}
-```
-
-### 示例代码：
-
-```go
-cache := newLRUCache(Options{
-    MaxBytes:        1024,
-    CleanupInterval: time.Minute,
-})
-
-cache.Set("key", String("value"))
-
-if val, ok := cache.Get("key"); ok {
-    fmt.Println("获取成功:", val)
-}
-```
+- ✅ 基于 Go 手写双向链表实现高性能缓存结构
+- ✅ 支持 TTL（过期时间）、Eviction（淘汰回调）
+- ✅ 支持 LRU 和 LRU-2 两种策略，适配不同业务场景
+- ✅ LRU-2 使用两级缓存设计：L1（近期访问）+ L2（高频使用）
+- ✅ 多 bucket 分桶并发，提升吞吐能力
+- ✅ 提供统一接口 `Store`，策略可插拔替换
+- ✅ 提供清理协程，自动清除过期项
 
 ---
 
-## 🧪 单元测试
-
-测试文件位于 `store/lru_test.go`，涵盖以下内容：
-
-- Get / Set 基本操作
-- TTL 过期测试
-- LRU 淘汰机制验证
-- Delete / Clear 功能
-- 过期时间的续期（UpdateExpiration）
-
-运行测试命令：
-
-```bash
-go test ./store -v
-```
-
----
-
-## 📁 项目结构
+## 📂 模块结构
 
 ```
 LCache/
+├── store/
+│   ├── lru.go         # 单级 LRU 缓存实现
+│   ├── lru2.go        # 两级 LRU 缓存（LRU-2）实现
+│   └── store.go       # 通用缓存接口与策略选择器
+├── main.go            # 示例或入口文件（可选）
 ├── go.mod
-├── main.go
-├── README.md
-└── store/
-    ├── lru.go
-    └── lru_test.go
+└── README.md
 ```
 
 ---
 
-## 🚧 后续计划
+## 🧠 缓存策略对比
 
-- 增加 benchmark 性能测试
-- 增加二级缓存支持（LRU-2）
-- 添加 CLI 或 HTTP 示例服务
-- 与统一 `Store` 接口集成
+| 策略   | 特点                                 | 适用场景                     |
+|--------|--------------------------------------|------------------------------|
+| LRU    | 最近最少使用，保留近期访问数据         | 内存有限、访问热点集中        |
+| LRU-2  | 先进入 L1，访问后晋升 L2，高频保留更久 | 热点频率分层、大数据缓存控制 |
+
+---
+
+## 🛠️ 使用方式
+
+```go
+import "your_module/store"
+
+opts := store.NewOptions()
+cache := store.NewStore(store.LRU2, opts)
+
+cache.Set("k1", MyValue{"hello"})
+val, ok := cache.Get("k1")
+```
+
+其中 `MyValue` 需要实现如下接口：
+
+```go
+type Value interface {
+    Len() int // 返回字节大小，用于内存估算
+}
+```
+
+---
+
+## 📌 进度记录
+
+| 日期       | 进度说明                     |
+|------------|------------------------------|
+| 2025-05-08 | ✅ 完成 `lru.go` 单级 LRU     |
+| 2025-05-08 | ✅ 完成 `lru2.go` 双级缓存     |
+| 2025-05-08 | ✅ 统一封装接口于 `store.go`  |
+
+---
+
+## 📄 TODO（后续计划）
+
+- [ ] 添加缓存统计（命中率、访问次数）
+- [ ] 提供 benchmark 压测文件
+- [ ] 支持主动降级 / 异常恢复机制
+- [ ] 添加完整测试覆盖率（目前部分测试待修复）
+
+---
+
+## 📃 License
+
+MIT License
