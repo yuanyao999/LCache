@@ -1,91 +1,171 @@
-# LCache 项目进度说明
+# 🚀 LCache – 高性能分布式缓存系统 (Go + gRPC + etcd)
 
-## ✅ 当前已完成模块
+[![MIT License](https://img.shields.io/github/license/yuanyao999/LCache)](LICENSE)
+[![Go Report Card](https://goreportcard.com/badge/github.com/yuanyao999/LCache)](https://goreportcard.com/report/github.com/yuanyao999/LCache)
+[![Go Version](https://img.shields.io/badge/Go-1.20%2B-brightgreen)](https://golang.org/)
+[![etcd](https://img.shields.io/badge/etcd-v3.5.x-blue)](https://github.com/etcd-io/etcd)
 
-### 1. store/ 层
-- `lru.go`：实现了基础的 LRU 缓存淘汰策略。
-- `lru2.go`：实现了双层缓存（L1 + L2）结构的 LRU2 算法，支持：
-  - 分桶（Bucket）
-  - 并发锁（每个桶一个 mutex）
-  - TTL 机制
-  - 手写双向链表
-- `store.go`：定义统一缓存接口 `Store`，用于抽象多种缓存实现（如 LRU、LRU2）。
+> ✨ 类似 GroupCache 的分布式缓存系统，支持多节点注册发现、跨节点拉取、LRU2 策略与缓存命中率统计。
 
 ---
 
-### 2. cache/ 层
-- `cache.go`：对底层 store 层进行封装，支持：
-  - 缓存初始化控制（懒加载）
-  - 读写并发安全
-  - 过期时间（TTL）
-  - 命中/未命中统计
-  - 缓存关闭与资源释放
-  - 缓存接口如：`Add`, `AddWithExpiration`, `Get`, `Delete`, `Clear`, `Stats`
+## 🔧 技术架构
+
+- 编程语言：Go 1.20+
+- 通信协议：gRPC
+- 服务发现：etcd
+- 缓存机制：自研 LRU / LRU2
+- 特色功能：一致性哈希节点路由、跨节点同步、命中率统计、日志系统
 
 ---
 
-### 3. group/ 层
-- `group.go`：实现缓存命名空间 `Group`，支持分布式缓存架构。
-  - 支持三层数据加载策略：本地缓存 → 分布式节点 Peer → Getter 回源
-  - 支持缓存自动同步（`syncToPeers`）
-  - 支持缓存组关闭、清除、统计等接口
-  - 通过 `RegisterPeers` 支持一致性哈希注册
+## ⚙️ 架构图
+
+```
+                        ┌────────────────────────┐
+                        │         etcd           │
+                        │ 服务注册 & 服务发现中心 │
+                        └──────────┬─────────────┘
+                                   │
+              ┌────────────────────┼────────────────────┐
+              │                    │                    │
+              ▼                    ▼                    ▼
+      ┌─────────────┐      ┌─────────────┐      ┌─────────────┐
+      │  LCache A    │      │  LCache B    │      │  LCache C    │
+      │ (127.0.0.1:8001) │  │ (127.0.0.1:8002) │  │ (127.0.0.1:8003) │
+      └──────┬────────┘      └──────┬────────┘      └──────┬────────┘
+             │                       │                       │
+             │                       │                       │
+             ▼                       ▼                       ▼
+       ┌──────────┐           ┌──────────┐           ┌──────────┐
+       │  LRU2 缓存 │           │  LRU2 缓存 │           │  LRU2 缓存 │
+       └──────────┘           └──────────┘           └──────────┘
+             │                       │                       │
+             ▼                       ▼                       ▼
+       ┌────────────┐         ┌────────────┐         ┌────────────┐
+       │  Group API │ ◄────┐  │  Group API │ ◄────┐  │  Group API │ ◄────┐
+       └────┬───────┘      │  └────┬───────┘      │  └────┬───────┘      │
+            │              │       │              │       │              │
+     ┌──────▼────────┐     │ ┌─────▼────────┐     │ ┌─────▼────────┐     │
+     │ PeerPicker 一致性哈希 │────┘ │ PeerPicker 一致性哈希 │────┘ │ PeerPicker 一致性哈希 │────┘
+     └──────┬────────┘       └─────┬────────┘       └─────┬────────┘
+            │                      │                      │
+            ▼                      ▼                      ▼
+     ┌────────────┐         ┌────────────┐         ┌────────────┐
+     │ gRPC Client │         │ gRPC Client │         │ gRPC Client │
+     └──────┬──────┘         └──────┬──────┘         └──────┬──────┘
+            │                       │                       │
+            ▼                       ▼                       ▼
+       (通过 gRPC 发起远程数据拉取请求到目标 LCache 节点)
+
+```
+
+## ✅ 架构说明要点
+
+- 每个 LCache 节点自带一套本地缓存（LRU2），并通过 Group 管理命名空间。
+
+- 所有节点启动时自动向 etcd 注册服务，并监听服务变更。
+
+- 通过一致性哈希确定 key 应该由哪个节点负责。
+
+- 本地未命中时自动通过 gRPC 请求其他节点拉取。
+
+- 支持缓存加载器（GetterFunc）在所有节点回源。
+
+
 
 ---
 
-### 4. singleflight/ 层
-- `singleflight.go`：实现请求抖动抑制（防止缓存击穿）
-  - 针对相同 key 的并发 `load` 请求只执行一次，其他协程等待并复用结果
+## 🚀 快速开始
+
+```bash
+# 克隆项目
+git clone https://github.com/yuanyao999/LCache.git && cd LCache
+
+# 编译 protobuf
+cd pb
+protoc --go_out=. --go-grpc_out=. cache.proto
+
+# 启动集群（etcd + 节点 A/B/C）
+chmod +x start_cluster.sh stop_cluster.sh
+./start_cluster.sh
+```
 
 ---
 
-### 5. kamacache/ 层
-- `byteview.go`：定义缓存值类型 `ByteView`，封装只读视图：
-  - `ByteSlice()` 返回拷贝，防止引用篡改
-  - `String()` 实现字符串表示
-  - `Len()` 获取数据大小（用于限流）
+## 🧪 功能展示
+
+- 每个节点写入本地键（key_A / key_B / key_C）
+- 自动服务发现后，每个节点尝试跨节点 `Get`
+- 输出缓存命中统计 & 节点路由日志
+
+示例日志：
+
+```
+节点A: 获取远程键 key_B 成功: 这是节点B的数据
+缓存统计: map[local_hits:1 peer_hits:2 ...]
+```
 
 ---
 
-### 6. 一致性哈希模块（今日新增）
-- `consistenthash.go`：
-  - 实现虚拟节点机制，提高节点均匀性
-  - 支持添加、删除节点、根据 key 映射节点
-  - 支持哈希函数定制
-  - 将被集成到分布式 peer 通信层中用于选择节点
+## 📁 目录结构
 
----
-
-## 📁 推荐项目结构
 ```
 LCache/
+├── cmd/main.go       # main.go 启动入口
+├── consistenthash/   # 一致性哈希模块
+├── logs/             # 日志输出目录
+├── pb/               # Protobuf 文件
+├── registry/         # etcd 注册模块
+├── singleflight/     # 实现请求抖动抑制（防止缓存击穿）
+├── store/            # LRU / LRU2 缓存实现
+├── byteview.go       # 封装只读视图
+├── cache.go          # 缓存适配层
+├── group.go          # 分布式命名空间 Group
+├── peers.go          # Peer 节点选择器
+├── client.go         # gRPC 客户端实现，用于跨节点拉取/设置缓存数据（实现 Peer 接口）
+├── server.go         # gRPC 服务端实现，提供 Get/Set/Delete 接口 + 注册到 etcd 的服务逻辑
+├── start_cluster.sh
+├── stop_cluster.sh
 ├── go.mod
-├── main.go                   // 启动示例
-├── kamacache/
-│   └── byteview.go
-├── cache/
-│   └── cache.go
-├── group/
-│   └── group.go
-├── store/
-│   ├── lru.go
-│   ├── lru2.go
-│   └── store.go
-├── singleflight/
-│   └── singleflight.go
-├── consistenthash/
-│   └── consistenthash.go
-├── test/
-│   └── lru_test.go
+└── README.md
 ```
 
 ---
 
-## 🔜 下一步建议开发模块
+## 🧹 停止集群
 
-- `peers.go`: 实现 `PeerPicker` 和 `Peer` 接口，负责节点间的调用（结合一致性哈希）
-- `http.go`: 使用 HTTP 实现节点间通信服务
-- `example/`: 添加演示 demo 和 benchmark
-- 完善测试覆盖率，涵盖 LRU2/LRU、多协程、过期淘汰、group 流程
+```bash
+./stop_cluster.sh
+```
+
+该命令将：
+
+- 停止所有节点进程
+- 杀掉 etcd
+- 清空 logs/*.log
+- 释放 8001~8003 端口
 
 ---
+
+## 📦 TODO & 可扩展方向
+
+- [ ] RESTful API 网关（支持 HTTP 访问）
+- [ ] Docker Compose 一键部署
+- [ ] Prometheus 监控
+- [ ] Web 控制面板
+- [ ] 缓存压缩、预热、批量接口
+
+---
+
+## 📜 License
+
+MIT © 2025 [@yuanyao999](https://github.com/yuanyao999)
+
+---
+
+## 🙌 致谢
+
+- [GeeCache](https://github.com/geektutu/7days-golang/tree/master/gee-cache)
+- [GroupCache](https://github.com/golang/groupcache)
+- [etcd](https://github.com/etcd-io/etcd)
