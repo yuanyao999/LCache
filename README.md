@@ -4,6 +4,8 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/yuanyao999/LCache)](https://goreportcard.com/report/github.com/yuanyao999/LCache)
 [![Go Version](https://img.shields.io/badge/Go-1.20%2B-brightgreen)](https://golang.org/)
 [![etcd](https://img.shields.io/badge/etcd-v3.5.x-blue)](https://github.com/etcd-io/etcd)
+[![Build](https://img.shields.io/badge/build-passing-brightgreen)]()
+
 
 > ✨ 类似 GroupCache 的分布式缓存系统，支持多节点注册发现、跨节点拉取、LRU2 策略与缓存命中率统计。
 
